@@ -44,6 +44,7 @@ from database import SafetyIncident, User
 from experts.cbt_expert import get_cbt_expert
 from experts.mindfulness_expert import get_mindfulness_expert
 from experts.motivation_expert import get_motivation_expert
+from experts.claude_expert import get_claude_expert
 from personalization import get_personalization_engine
 from event_extraction import get_event_extractor
 from scheduler import get_scheduler, start_scheduler, stop_scheduler
@@ -359,24 +360,38 @@ async def handle_message(
         logger.debug(f"Routing metadata: {routing_metadata}")
 
         # ==================== Step 6: Generate Expert Response ====================
-        # Get the appropriate expert
-        if expert_name == "cbt":
-            expert = get_cbt_expert()
-        elif expert_name == "mindfulness":
-            expert = get_mindfulness_expert()
-        elif expert_name == "motivation":
-            expert = get_motivation_expert()
-        else:
-            logger.error(f"Unknown expert: {expert_name}, falling back to CBT")
-            expert = get_cbt_expert()
-            expert_name = "cbt"
+        # Check if Claude AI is available and should be used
+        claude_expert = get_claude_expert()
+        use_claude = not settings.use_mock_models and claude_expert.is_available()
 
-        # Generate response
-        bot_response = expert.generate_response(
-            user_message,
-            conversation_history,
-            context=routing_metadata
-        )
+        if use_claude:
+            # Use Claude for conversational, empathetic responses
+            logger.info(f"Using Claude AI for {expert_name} response")
+            routing_metadata['expert'] = expert_name  # Pass expert type to Claude
+            bot_response = claude_expert.generate_response(
+                user_message,
+                conversation_history,
+                context=routing_metadata
+            )
+        else:
+            # Use rule-based experts (fallback or demo mode)
+            if expert_name == "cbt":
+                expert = get_cbt_expert()
+            elif expert_name == "mindfulness":
+                expert = get_mindfulness_expert()
+            elif expert_name == "motivation":
+                expert = get_motivation_expert()
+            else:
+                logger.error(f"Unknown expert: {expert_name}, falling back to CBT")
+                expert = get_cbt_expert()
+                expert_name = "cbt"
+
+            # Generate response
+            bot_response = expert.generate_response(
+                user_message,
+                conversation_history,
+                context=routing_metadata
+            )
 
         # ==================== Step 6.5: Extract Events & Apply Personalization ====================
         # Extract any important events mentioned

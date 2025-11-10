@@ -24,6 +24,9 @@ twilio==8.10.0
 # Scheduling for proactive outreach
 apscheduler==3.10.4
 
+# AI Integration
+anthropic==0.40.0  # Claude API
+
 # Environment management
 python-dotenv==1.0.0
 
