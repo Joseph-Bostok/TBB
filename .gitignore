@@ -1,0 +1,48 @@
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Environment variables (contains secrets)
+.env
+
+# Database (contains user data)
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs (can be large and contain sensitive info)
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+server_output.log
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Claude Code (optional - you can keep this if you want)
+.claude/
