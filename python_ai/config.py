@@ -78,6 +78,22 @@ class Settings(BaseSettings):
     # Prevent abuse and manage system load
     max_messages_per_hour: int = 30
 
+    # ==================== SMS Configuration (Twilio) ====================
+    # Twilio credentials for SMS integration
+    twilio_account_sid: Optional[str] = None
+    twilio_auth_token: Optional[str] = None
+    twilio_phone_number: Optional[str] = None
+
+    # Base URL for webhook callbacks (for production deployment)
+    webhook_base_url: Optional[str] = "http://localhost:8000"
+
+    # ==================== Personalization Configuration ====================
+    # Enable learning user's communication style
+    enable_personalization: bool = True
+
+    # Number of past messages to analyze for style learning
+    style_learning_window: int = 50
+
     # ==================== Pydantic Settings Configuration ====================
     model_config = SettingsConfigDict(
         env_file=".env",  # Load from .env file if present
