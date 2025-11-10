@@ -44,6 +44,10 @@ from database import SafetyIncident, User
 from experts.cbt_expert import get_cbt_expert
 from experts.mindfulness_expert import get_mindfulness_expert
 from experts.motivation_expert import get_motivation_expert
+from personalization import get_personalization_engine
+from event_extraction import get_event_extractor
+from scheduler import get_scheduler, start_scheduler, stop_scheduler
+from sms_handler import get_sms_handler
 
 # Initialize logging
 setup_logging()
@@ -84,6 +88,17 @@ async def lifespan(app: FastAPI):
         test_router = get_router()
         test_router.test_routing()
 
+    # Start proactive scheduler
+    logger.info("Starting proactive outreach scheduler...")
+    start_scheduler()
+
+    # Check SMS configuration
+    sms_handler = get_sms_handler()
+    if sms_handler.is_enabled():
+        logger.info(f"SMS enabled with Twilio number: {sms_handler.from_number}")
+    else:
+        logger.warning("SMS not configured - running in demo mode")
+
     logger.info("\n" + "="*60)
     logger.info(f"Therapy Bot ready on http://{settings.host}:{settings.port}")
     logger.info("="*60 + "\n")
@@ -92,6 +107,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down Therapy Bot...")
+    stop_scheduler()
     await close_db()
     logger.info("Shutdown complete")
 
@@ -152,6 +168,26 @@ class UserStatsResponse(BaseModel):
     is_flagged: bool
     recent_activity: Dict
     conversation_preview: List[Dict]
+
+
+class TwilioWebhookRequest(BaseModel):
+    """
+    Request model for Twilio SMS webhook
+
+    Twilio sends these fields with incoming SMS messages
+    """
+    From: str = Field(..., description="Sender's phone number (E.164 format)")
+    Body: str = Field(..., description="Message text content")
+    MessageSid: Optional[str] = Field(None, description="Twilio message ID")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "From": "+15551234567",
+                "Body": "I've been feeling anxious lately",
+                "MessageSid": "SM1234567890abcdef"
+            }
+        }
 
 
 # ==================== API Endpoints ====================
@@ -342,6 +378,34 @@ async def handle_message(
             context=routing_metadata
         )
 
+        # ==================== Step 6.5: Extract Events & Apply Personalization ====================
+        # Extract any important events mentioned
+        if settings.enable_personalization:
+            event_extractor = get_event_extractor()
+            events = event_extractor.extract_events(user_message)
+
+            if events:
+                logger.info(f"Extracted {len(events)} event(s) from message")
+                for event in events:
+                    saved_event = await event_extractor.save_event(db, user.id, event)
+                    if saved_event:
+                        # Add a note about tracking the event
+                        bot_response += f"\n\nI've made a note about your {event['type']} on {event['date'].strftime('%A, %B %d')}. I'll check in with you about it!"
+
+            # Get or analyze user's communication style
+            personalization_engine = get_personalization_engine()
+
+            # Analyze style every 10 messages
+            if user.message_count % 10 == 0:
+                user_style = await personalization_engine.analyze_user_style(db, user.id)
+                await personalization_engine.save_user_style(db, user.id, user_style)
+                logger.debug(f"Updated communication style for user {user.id}")
+            else:
+                user_style = await personalization_engine.get_user_style(db, user.id)
+
+            # Adapt response to user's style
+            bot_response = personalization_engine.adapt_response(bot_response, user_style)
+
         # ==================== Step 7: Save to Database ====================
         # Save user message
         await save_message(db, user.id, "user", user_message)
@@ -449,6 +513,74 @@ async def test_routing(message: str):
         "all_scores": {k: round(v, 3) for k, v in metadata['all_scores'].items()},
         "routing_reason": metadata['routing_reason'],
     }
+
+
+@app.post("/sms/webhook")
+async def sms_webhook(
+    From: str = "",
+    Body: str = "",
+    MessageSid: str = "",
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Twilio SMS Webhook Endpoint
+
+    This endpoint receives incoming SMS messages from Twilio.
+    Twilio sends data as application/x-www-form-urlencoded,
+    so we use Form parameters instead of a Pydantic model.
+
+    Setup in Twilio:
+    1. Go to Phone Numbers -> Active Numbers
+    2. Select your number
+    3. Under Messaging, set Webhook URL to:
+       https://yourdomain.com/sms/webhook
+    4. Method: POST
+
+    Args:
+        From: Sender's phone number (E.164 format: +15551234567)
+        Body: Message text
+        MessageSid: Twilio message ID
+
+    Returns:
+        TwiML response (empty for now, bot replies proactively)
+    """
+
+    logger.info(f"Received SMS from {From}: {Body[:50]}...")
+
+    try:
+        # Process message using existing message handler
+        request = MessageRequest(user=From, message=Body)
+        response = await handle_message(request, db)
+
+        # Send response via SMS
+        sms_handler = get_sms_handler()
+        if sms_handler.is_enabled():
+            success, result = await sms_handler.send_sms(
+                to_number=From,
+                message=response.reply
+            )
+
+            if success:
+                logger.info(f"SMS reply sent to {From}: SID={result}")
+            else:
+                logger.error(f"Failed to send SMS reply to {From}: {result}")
+
+        # Return empty TwiML response (Twilio requires a response)
+        from fastapi.responses import Response
+        return Response(
+            content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+            media_type="application/xml"
+        )
+
+    except Exception as e:
+        logger.error(f"Error processing SMS webhook: {e}", exc_info=True)
+
+        # Return error TwiML
+        from fastapi.responses import Response
+        return Response(
+            content='<?xml version="1.0" encoding="UTF-8"?><Response><Message>Sorry, there was an error processing your message. Please try again.</Message></Response>',
+            media_type="application/xml"
+        )
 
 
 # ==================== Error Handlers ====================

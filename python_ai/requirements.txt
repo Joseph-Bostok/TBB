@@ -18,6 +18,12 @@ torch>=2.0.0  # Required by sentence-transformers
 # HTTP Client for external APIs (if needed later)
 httpx==0.25.2
 
+# SMS Integration
+twilio==8.10.0
+
+# Scheduling for proactive outreach
+apscheduler==3.10.4
+
 # Environment management
 python-dotenv==1.0.0
 

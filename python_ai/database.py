@@ -13,10 +13,11 @@ Key Design Decisions:
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy import String, Text, DateTime, Boolean, Integer, ForeignKey, Index
+from sqlalchemy import String, Text, DateTime, Boolean, Integer, Float, ForeignKey, Index, JSON
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import logging
+import json
 
 from config import settings
 
@@ -71,12 +72,21 @@ class User(Base):
     # Preferences
     preferred_expert: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
+    # Communication style learning
+    communication_style: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON storing style metrics
+
     # Relationships
     # One user has many messages
     messages: Mapped[List["Message"]] = relationship("Message", back_populates="user", cascade="all, delete-orphan")
 
     # One user can have many safety incidents
     safety_incidents: Mapped[List["SafetyIncident"]] = relationship("SafetyIncident", back_populates="user", cascade="all, delete-orphan")
+
+    # One user has many important events
+    important_events: Mapped[List["ImportantEvent"]] = relationship("ImportantEvent", back_populates="user", cascade="all, delete-orphan")
+
+    # One user has many scheduled messages
+    scheduled_messages: Mapped[List["ScheduledMessage"]] = relationship("ScheduledMessage", back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<User(user_id='{self.user_id}', messages={self.message_count}, flagged={self.is_flagged})>"
@@ -184,6 +194,118 @@ class SafetyIncident(Base):
 
     def __repr__(self):
         return f"<SafetyIncident(type='{self.incident_type}', severity='{self.severity}', resolved={self.resolved})>"
+
+
+# ==================== Important Event Model ====================
+class ImportantEvent(Base):
+    """
+    Important Event Model
+
+    Tracks important events mentioned by users (tests, appointments, deadlines, etc.)
+    This enables proactive follow-up and context-aware support.
+
+    Use Cases:
+    - User mentions: "I have a test on Friday"
+    - Bot creates event and follows up daily
+    - User mentions: "My therapy appointment is next week"
+    - Bot checks in before and after
+
+    Fields:
+    - user_id: Who mentioned the event
+    - event_type: Category (test, appointment, deadline, social, other)
+    - description: What the event is
+    - event_date: When it occurs
+    - importance: User-assigned or inferred (low/medium/high)
+    - follow_up_before_days: Days before to check in (e.g., 1, 2, 3)
+    - follow_up_after_days: Days after to check in (e.g., 1)
+    - completed: Whether the event has passed and been followed up on
+    """
+    __tablename__ = "important_events"
+
+    # Primary key
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+
+    # Foreign key
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+
+    # Event details
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'test', 'appointment', 'deadline', etc.
+    description: Mapped[str] = mapped_column(Text, nullable=False)  # "Math exam", "Therapy appointment"
+    event_date: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    importance: Mapped[str] = mapped_column(String(20), default="medium", nullable=False)  # 'low', 'medium', 'high'
+
+    # Follow-up configuration
+    follow_up_before_days: Mapped[str] = mapped_column(String(100), default="1", nullable=True)  # Comma-separated: "1,2,3"
+    follow_up_after_days: Mapped[str] = mapped_column(String(100), default="1", nullable=True)  # Comma-separated: "1"
+
+    # Status
+    completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationship
+    user: Mapped["User"] = relationship("User", back_populates="important_events")
+
+    def __repr__(self):
+        return f"<ImportantEvent(type='{self.event_type}', date='{self.event_date}', completed={self.completed})>"
+
+
+# ==================== Scheduled Message Model ====================
+class ScheduledMessage(Base):
+    """
+    Scheduled Message Model
+
+    Stores messages to be sent at specific times for proactive outreach.
+    This enables the bot to:
+    - Follow up on important events
+    - Check in daily/weekly
+    - Send reminders
+    - Provide motivational messages
+
+    Message Types:
+    - follow_up: Following up on a mentioned event
+    - check_in: Regular wellness check
+    - reminder: Reminder for medication, habits, etc.
+    - motivation: Proactive encouragement
+
+    Fields:
+    - user_id: Recipient
+    - message_content: What to send
+    - scheduled_time: When to send it
+    - message_type: Category of message
+    - related_event_id: If following up on an event
+    - sent: Whether it's been delivered
+    - sent_at: When it was actually sent
+    """
+    __tablename__ = "scheduled_messages"
+
+    # Primary key
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+
+    # Foreign keys
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    related_event_id: Mapped[Optional[int]] = mapped_column(ForeignKey("important_events.id"), nullable=True)
+
+    # Message details
+    message_content: Mapped[str] = mapped_column(Text, nullable=False)
+    message_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'follow_up', 'check_in', 'reminder'
+
+    # Scheduling
+    scheduled_time: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    sent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    # Metadata
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    user: Mapped["User"] = relationship("User", back_populates="scheduled_messages")
+
+    def __repr__(self):
+        return f"<ScheduledMessage(type='{self.message_type}', scheduled='{self.scheduled_time}', sent={self.sent})>"
+
+
+# Index for efficient scheduling queries
+Index('idx_scheduled_unsent', ScheduledMessage.scheduled_time, ScheduledMessage.sent)
 
 
 # ==================== Database Engine and Session ====================
