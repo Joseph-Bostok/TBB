@@ -13,8 +13,12 @@ from routers import get_router
 from experts.cbt_expert import get_cbt_expert
 from experts.mindfulness_expert import get_mindfulness_expert
 from experts.motivation_expert import get_motivation_expert
+from experts.claude_expert import get_claude_expert
 from event_extraction import get_event_extractor
 from personalization import get_personalization_engine
+from config import get_settings
+
+settings = get_settings()
 
 async def test_bot():
     """Test the bot locally"""
@@ -64,16 +68,25 @@ async def test_bot():
         print(f"  Confidence: {confidence:.2f}")
 
         # Get expert
-        experts = {
-            "cbt": get_cbt_expert(),
-            "mindfulness": get_mindfulness_expert(),
-            "motivation": get_motivation_expert()
-        }
-        expert = experts[expert_name]
-
-        # Generate response
         print("\n5. Generating response...")
-        response = expert.generate_response(test_message, [], metadata)
+
+        # Check if Claude is available
+        claude_expert = get_claude_expert()
+        use_claude = not settings.use_mock_models and claude_expert.is_available()
+
+        if use_claude:
+            print("✓ Using Claude AI (conversational)")
+            metadata['expert'] = expert_name
+            response = claude_expert.generate_response(test_message, [], metadata)
+        else:
+            print(f"✓ Using rule-based {expert_name} expert")
+            experts = {
+                "cbt": get_cbt_expert(),
+                "mindfulness": get_mindfulness_expert(),
+                "motivation": get_motivation_expert()
+            }
+            expert = experts[expert_name]
+            response = expert.generate_response(test_message, [], metadata)
         print(f"✓ Response generated ({len(response)} chars)")
 
         # Apply personalization
