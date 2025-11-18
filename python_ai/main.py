@@ -19,6 +19,7 @@ API Endpoints:
 """
 
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -121,6 +122,16 @@ app = FastAPI(
     version=settings.app_version,
     description="AI-powered therapy chatbot with crisis detection and MoE routing",
     lifespan=lifespan
+)
+
+# ==================== CORS Configuration ====================
+# Allow cross-origin requests from web clients
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
