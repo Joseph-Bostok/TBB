@@ -526,10 +526,10 @@ async def verify_phone(
             )
 
         # Create or get existing user
-        user = await get_or_create_user(db, phone_number)
+        user, is_new = await get_or_create_user(db, phone_number)
         await db.commit()
 
-        logger.info(f"Phone verification successful for {phone_number}")
+        logger.info(f"Phone verification successful for {phone_number} (new_user={is_new})")
 
         return PhoneVerifyResponse(
             success=True,
