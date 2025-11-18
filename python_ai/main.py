@@ -49,6 +49,7 @@ from personalization import get_personalization_engine
 from event_extraction import get_event_extractor
 from scheduler import get_scheduler, start_scheduler, stop_scheduler
 from sms_handler import get_sms_handler
+from firebase_auth import firebase_manager, verify_phone_token
 
 # Initialize logging
 setup_logging()
@@ -189,6 +190,30 @@ class TwilioWebhookRequest(BaseModel):
                 "MessageSid": "SM1234567890abcdef"
             }
         }
+
+
+class PhoneVerifyRequest(BaseModel):
+    """
+    Request model for Firebase phone verification
+
+    Client sends Firebase ID token after phone verification
+    """
+    id_token: str = Field(..., description="Firebase ID token from client authentication")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "id_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+            }
+        }
+
+
+class PhoneVerifyResponse(BaseModel):
+    """Response model for phone verification"""
+    success: bool = Field(..., description="Whether verification was successful")
+    phone_number: Optional[str] = Field(None, description="Verified phone number")
+    user_id: Optional[str] = Field(None, description="User ID in the system")
+    message: str = Field(..., description="Status message")
 
 
 # ==================== API Endpoints ====================
@@ -448,6 +473,66 @@ async def handle_message(
     except Exception as e:
         logger.error(f"Error processing message: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error processing your message")
+
+
+@app.post("/auth/verify-phone", response_model=PhoneVerifyResponse)
+async def verify_phone(
+    request: PhoneVerifyRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Verify phone number using Firebase authentication
+
+    Flow:
+    1. Client sends phone number to Firebase (client-side)
+    2. User receives SMS verification code
+    3. Client verifies code and gets ID token
+    4. Client sends ID token to this endpoint
+    5. Server verifies token and creates/returns user
+
+    Args:
+        request: PhoneVerifyRequest with Firebase ID token
+
+    Returns:
+        PhoneVerifyResponse with verification result and user info
+    """
+    try:
+        # Verify the Firebase ID token
+        user_info = await firebase_manager.verify_id_token(request.id_token)
+
+        if not user_info:
+            return PhoneVerifyResponse(
+                success=False,
+                message="Invalid or expired authentication token"
+            )
+
+        phone_number = user_info.get('phone_number')
+
+        if not phone_number:
+            return PhoneVerifyResponse(
+                success=False,
+                message="No phone number associated with this token"
+            )
+
+        # Create or get existing user
+        user = await get_or_create_user(db, phone_number)
+        await db.commit()
+
+        logger.info(f"Phone verification successful for {phone_number}")
+
+        return PhoneVerifyResponse(
+            success=True,
+            phone_number=phone_number,
+            user_id=user.user_id,
+            message="Phone number verified successfully"
+        )
+
+    except Exception as e:
+        logger.error(f"Error verifying phone: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Error processing phone verification"
+        )
 
 
 @app.get("/stats/{user_id}", response_model=UserStatsResponse)

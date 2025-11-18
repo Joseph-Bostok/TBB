@@ -87,6 +87,11 @@ class Settings(BaseSettings):
     # Base URL for webhook callbacks (for production deployment)
     webhook_base_url: Optional[str] = "http://localhost:8000"
 
+    # ==================== Firebase Phone Authentication ====================
+    # Path to Firebase service account credentials JSON file
+    # Download from: Firebase Console > Project Settings > Service Accounts
+    firebase_credentials_path: Optional[str] = "firebase-credentials.json"
+
     # ==================== Personalization Configuration ====================
     # Enable learning user's communication style
     enable_personalization: bool = True

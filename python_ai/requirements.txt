@@ -21,6 +21,9 @@ httpx==0.25.2
 # SMS Integration
 twilio==8.10.0
 
+# Firebase Phone Authentication
+firebase-admin==6.3.0
+
 # Scheduling for proactive outreach
 apscheduler==3.10.4
 
