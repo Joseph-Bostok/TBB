@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>TBB Phone Authentication Test</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 500px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        input, button {
+            width: 100%;
+            padding: 12px;
+            margin: 10px 0;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #status {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+            display: none;
+        }
+        #status.show {
+            display: block;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        #recaptcha-container {
+            margin: 20px 0;
+            display: flex;
+            justify-content: center;
+        }
+        .hidden {
+            display: none;
+        }
+        .hint {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Phone Authentication Test</h1>
+
+        <div id="phone-section">
+            <p>Enter your phone number to receive a verification code:</p>
+            <input type="tel" id="phone-number" placeholder="+1 650 555 1234" />
+            <div class="hint">Format: +[country code][number] (e.g., +1 650 555 1234)</div>
+            <div id="recaptcha-container"></div>
+            <button id="send-code-btn" onclick="sendVerificationCode()">Send Verification Code</button>
+        </div>
+
+        <div id="code-section" class="hidden">
+            <p>Enter the 6-digit code sent to your phone:</p>
+            <input type="text" id="verification-code" placeholder="123456" maxlength="6" />
+            <button onclick="verifyCode()">Verify Code & Sign In</button>
+            <button onclick="resetForm()" style="background-color: #6c757d;">Start Over</button>
+        </div>
+
+        <div id="status"></div>
+
+        <div id="user-info" class="hidden" style="margin-top: 20px; padding: 15px; background: #e7f3ff; border-radius: 4px;">
+            <h3 style="margin-top: 0;">✅ Authenticated Successfully!</h3>
+            <p><strong>Phone:</strong> <span id="user-phone"></span></p>
+            <p><strong>User ID:</strong> <span id="user-id"></span></p>
+        </div>
+    </div>
+
+    <!-- Firebase JavaScript SDK (Compat version for easier setup) -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+
+    <script>
+        // ========================================
+        // TODO: Replace with YOUR Firebase config!
+        // ========================================
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY_HERE",
+            authDomain: "tbb-therapy-app.firebaseapp.com",
+            projectId: "tbb-therapy-app",
+            storageBucket: "tbb-therapy-app.appspot.com",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        // Your backend API URL
+        const BACKEND_URL = "http://localhost:8000";
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+
+        // Setup reCAPTCHA verifier
+        window.recaptchaVerifier = new firebase.auth.RecaptchaVerifier('recaptcha-container', {
+            'size': 'normal',
+            'callback': (response) => {
+                console.log('reCAPTCHA solved');
+            },
+            'expired-callback': () => {
+                showStatus('reCAPTCHA expired. Please try again.', 'error');
+            }
+        });
+
+        let confirmationResult;
+
+        // Send verification code
+        async function sendVerificationCode() {
+            const phoneNumber = document.getElementById('phone-number').value.trim();
+
+            if (!phoneNumber) {
+                showStatus('Please enter a phone number', 'error');
+                return;
+            }
+
+            if (!phoneNumber.startsWith('+')) {
+                showStatus('Phone number must start with + and country code (e.g., +1 for US)', 'error');
+                return;
+            }
+
+            const appVerifier = window.recaptchaVerifier;
+            const button = document.getElementById('send-code-btn');
+
+            button.disabled = true;
+            showStatus('Sending verification code...', 'info');
+
+            try {
+                confirmationResult = await auth.signInWithPhoneNumber(phoneNumber, appVerifier);
+                showStatus('✓ Verification code sent! Check your phone.', 'success');
+
+                // Switch to code input view
+                document.getElementById('phone-section').classList.add('hidden');
+                document.getElementById('code-section').classList.remove('hidden');
+
+                // Focus on code input
+                setTimeout(() => {
+                    document.getElementById('verification-code').focus();
+                }, 100);
+
+            } catch (error) {
+                console.error('Error sending code:', error);
+                showStatus('Error: ' + error.message, 'error');
+                button.disabled = false;
+
+                // Reset reCAPTCHA
+                if (window.recaptchaWidgetId !== undefined) {
+                    grecaptcha.reset(window.recaptchaWidgetId);
+                }
+            }
+        }
+
+        // Verify the code
+        async function verifyCode() {
+            const code = document.getElementById('verification-code').value.trim();
+
+            if (!code || code.length !== 6) {
+                showStatus('Please enter the 6-digit verification code', 'error');
+                return;
+            }
+
+            showStatus('Verifying code...', 'info');
+
+            try {
+                // Verify the SMS code with Firebase
+                const result = await confirmationResult.confirm(code);
+                const user = result.user;
+
+                showStatus('✓ Code verified! Authenticating with backend...', 'info');
+
+                // Get the ID token
+                const idToken = await user.getIdToken();
+                console.log('Got ID token:', idToken.substring(0, 50) + '...');
+
+                // Send token to backend
+                const response = await fetch(`${BACKEND_URL}/auth/verify-phone`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ id_token: idToken })
+                });
+
+                const data = await response.json();
+                console.log('Backend response:', data);
+
+                if (data.success) {
+                    showStatus('🎉 Successfully authenticated!', 'success');
+
+                    // Show user info
+                    document.getElementById('user-phone').textContent = data.phone_number;
+                    document.getElementById('user-id').textContent = data.user_id;
+                    document.getElementById('user-info').classList.remove('hidden');
+
+                    // Hide code section
+                    document.getElementById('code-section').classList.add('hidden');
+                } else {
+                    showStatus('Backend authentication failed: ' + data.message, 'error');
+                }
+
+            } catch (error) {
+                console.error('Error verifying code:', error);
+                if (error.code === 'auth/invalid-verification-code') {
+                    showStatus('Invalid verification code. Please try again.', 'error');
+                } else {
+                    showStatus('Error: ' + error.message, 'error');
+                }
+            }
+        }
+
+        // Reset form
+        function resetForm() {
+            document.getElementById('phone-section').classList.remove('hidden');
+            document.getElementById('code-section').classList.add('hidden');
+            document.getElementById('user-info').classList.add('hidden');
+            document.getElementById('verification-code').value = '';
+            document.getElementById('send-code-btn').disabled = false;
+            hideStatus();
+
+            // Reload to reset reCAPTCHA
+            location.reload();
+        }
+
+        // Show status message
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = type + ' show';
+        }
+
+        // Hide status message
+        function hideStatus() {
+            const statusDiv = document.getElementById('status');
+            statusDiv.classList.remove('show');
+        }
+
+        // Allow Enter key to submit
+        document.getElementById('phone-number').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendVerificationCode();
+            }
+        });
+
+        document.getElementById('verification-code').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                verifyCode();
+            }
+        });
+    </script>
+</body>
+</html>
