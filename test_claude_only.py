@@ -38,8 +38,9 @@ def test_claude():
     try:
         client = Anthropic(api_key=api_key)
 
+        # Try Claude 3 Opus (known stable model)
         message = client.messages.create(
-            model="claude-3-5-sonnet-20240620",
+            model="claude-3-opus-20240229",
             max_tokens=150,
             messages=[{
                 "role": "user",

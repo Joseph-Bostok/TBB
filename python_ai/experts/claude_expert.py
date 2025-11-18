@@ -31,7 +31,7 @@ class ClaudeExpert:
     def __init__(self):
         """Initialize Claude client"""
         self.client = None
-        self.model = "claude-3-5-sonnet-20241022"  # Latest Claude model
+        self.model = "claude-3-5-sonnet-20241022"  # Claude 3.5 Sonnet (October 2024)
 
         if settings.anthropic_api_key:
             try:
